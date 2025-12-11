@@ -1,0 +1,1243 @@
+-- ULTIMATE SERVER DESTRUCTION SCRIPT v2.0 (FE OPTIMIZED)
+-- Advanced multi-threaded remote bombardment system with intelligent caching
+
+local Services = {
+    Players = game:GetService("Players"),
+    Workspace = game:GetService("Workspace"),
+    CoreGui = game:GetService("CoreGui"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    ReplicatedFirst = game:GetService("ReplicatedFirst"),
+    StarterGui = game:GetService("StarterGui"),
+    RunService = game:GetService("RunService"),
+    JointsService = game:GetService("JointsService"),
+    Lighting = game:GetService("Lighting"),
+    SoundService = game:GetService("SoundService"),
+    Chat = game:GetService("Chat"),
+    UserInputService = game:GetService("UserInputService"),
+    TweenService = game:GetService("TweenService")
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+
+-- Configuration
+local Config = {
+    MainActive = false,
+    SpamSpeed = "EXTREME", -- LOW, MEDIUM, HIGH, EXTREME, NUCLEAR
+    TargetPlayers = true,
+    TargetNPCs = true,
+    SmartDetection = true,
+    MultiThreaded = true,
+    AutoRescan = true,
+    DebugMode = false
+}
+
+getgenv().UltimateDestruction = getgenv().UltimateDestruction or Config
+
+-- Advanced caching system with metadata
+local Cache = {
+    TouchEvents = {},
+    RemoteEvents = {},
+    RemoteFunctions = {},
+    BindableEvents = {},
+    TargetParts = {},
+    Players = {},
+    NPCs = {},
+    LastScan = 0,
+    ScanInterval = 8,
+    Statistics = {
+        TotalRemotesFired = 0,
+        TotalTargetsHit = 0,
+        SuccessfulHits = 0,
+        FailedAttempts = 0,
+        Uptime = 0
+    }
+}
+
+-- Speed configurations (calls per second)
+local SpeedProfiles = {
+    LOW = {delay = 0.5, multiplier = 1},
+    MEDIUM = {delay = 0.2, multiplier = 2},
+    HIGH = {delay = 0.1, multiplier = 4},
+    EXTREME = {delay = 0.05, multiplier = 8},
+    NUCLEAR = {delay = 0, multiplier = 16} -- Uses Heartbeat, no delay
+}
+
+-- Utility Functions
+local Utils = {}
+
+function Utils.Log(message, level)
+    level = level or "INFO"
+    if Config.DebugMode then
+        print(string.format("[%s] %s: %s", os.date("%X"), level, message))
+    end
+end
+
+function Utils.SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    if not success then
+        Utils.Log("Error: " .. tostring(result), "ERROR")
+        Cache.Statistics.FailedAttempts = Cache.Statistics.FailedAttempts + 1
+    else
+        Cache.Statistics.SuccessfulHits = Cache.Statistics.SuccessfulHits + 1
+    end
+    return success, result
+end
+
+function Utils.GetTimestamp()
+    return tick()
+end
+
+function Utils.FormatNumber(num)
+    if num >= 1000000 then
+        return string.format("%.2fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.2fK", num / 1000)
+    else
+        return tostring(num)
+    end
+end
+
+-- Advanced Remote Scanner with intelligent filtering
+local RemoteScanner = {}
+
+function RemoteScanner.ScanService(service)
+    local remotes = {
+        touchEvents = {},
+        remoteEvents = {},
+        remoteFunctions = {},
+        bindableEvents = {}
+    }
+    
+    Utils.SafeCall(function()
+        for _, descendant in ipairs(service:GetDescendants()) do
+            if descendant:IsA("RemoteEvent") then
+                if descendant.Name == "TouchEvent" then
+                    table.insert(remotes.touchEvents, descendant)
+                end
+                table.insert(remotes.remoteEvents, descendant)
+            elseif descendant:IsA("RemoteFunction") then
+                table.insert(remotes.remoteFunctions, descendant)
+            elseif descendant:IsA("BindableEvent") then
+                table.insert(remotes.bindableEvents, descendant)
+            end
+        end
+    end)
+    
+    return remotes
+end
+
+function RemoteScanner.FullScan()
+    Utils.Log("Starting comprehensive remote scan...", "SCAN")
+    
+    local scanStart = Utils.GetTimestamp()
+    
+    -- Clear existing cache
+    Cache.TouchEvents = {}
+    Cache.RemoteEvents = {}
+    Cache.RemoteFunctions = {}
+    Cache.BindableEvents = {}
+    
+    local servicesToScan = {
+        Services.ReplicatedStorage,
+        Services.ReplicatedFirst,
+        Services.JointsService,
+        Services.Workspace,
+        Services.Lighting,
+        Services.SoundService
+    }
+    
+    -- Multi-threaded scanning
+    local threads = {}
+    for _, service in ipairs(servicesToScan) do
+        table.insert(threads, coroutine.create(function()
+            local results = RemoteScanner.ScanService(service)
+            
+            for _, remote in ipairs(results.touchEvents) do
+                table.insert(Cache.TouchEvents, remote)
+            end
+            for _, remote in ipairs(results.remoteEvents) do
+                table.insert(Cache.RemoteEvents, remote)
+            end
+            for _, remote in ipairs(results.remoteFunctions) do
+                table.insert(Cache.RemoteFunctions, remote)
+            end
+            for _, remote in ipairs(results.bindableEvents) do
+                table.insert(Cache.BindableEvents, remote)
+            end
+        end))
+    end
+    
+    -- Execute threads
+    for _, thread in ipairs(threads) do
+        coroutine.resume(thread)
+    end
+    
+    Cache.LastScan = Utils.GetTimestamp()
+    
+    local scanDuration = Cache.LastScan - scanStart
+    Utils.Log(string.format("Scan complete in %.2fs | Found: %d TouchEvents, %d RemoteEvents, %d RemoteFunctions", 
+        scanDuration, #Cache.TouchEvents, #Cache.RemoteEvents, #Cache.RemoteFunctions), "SCAN")
+    
+    return {
+        touchEvents = #Cache.TouchEvents,
+        remoteEvents = #Cache.RemoteEvents,
+        remoteFunctions = #Cache.RemoteFunctions,
+        bindableEvents = #Cache.BindableEvents
+    }
+end
+
+-- Smart Part Detection System
+local PartDetector = {}
+
+function PartDetector.IsTargetPart(part)
+    if not part:IsA("BasePart") then return false end
+    
+    local keywords = {
+        "trip", "trigger", "touch", "seat", "platform", "slide",
+        "button", "lever", "switch", "detector", "sensor", "zone",
+        "checkpoint", "spawn", "teleport", "door", "gate"
+    }
+    
+    local partName = part.Name:lower()
+    for _, keyword in ipairs(keywords) do
+        if partName:find(keyword) then
+            return true
+        end
+    end
+    
+    -- Check if part has TouchTransmitter
+    if part:FindFirstChildOfClass("TouchTransmitter") then
+        return true
+    end
+    
+    -- Check if part is a Seat
+    if part:IsA("Seat") or part:IsA("VehicleSeat") then
+        return true
+    end
+    
+    return false
+end
+
+function PartDetector.ScanParts()
+    Utils.Log("Scanning for target parts...", "SCAN")
+    
+    Cache.TargetParts = {}
+    
+    local scanLocations = {
+        Services.Workspace,
+        Services.JointsService
+    }
+    
+    for _, location in ipairs(scanLocations) do
+        Utils.SafeCall(function()
+            for _, descendant in ipairs(location:GetDescendants()) do
+                if PartDetector.IsTargetPart(descendant) then
+                    table.insert(Cache.TargetParts, descendant)
+                end
+            end
+        end)
+    end
+    
+    Utils.Log(string.format("Found %d target parts", #Cache.TargetParts), "SCAN")
+    return #Cache.TargetParts
+end
+
+-- Target Management System
+local TargetManager = {}
+
+function TargetManager.UpdateTargets()
+    Cache.Players = {}
+    Cache.NPCs = {}
+    
+    -- Get all players
+    if Config.TargetPlayers then
+        for _, player in ipairs(Services.Players:GetPlayers()) do
+            if player.Character then
+                local character = player.Character
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                
+                if hrp and humanoid then
+                    table.insert(Cache.Players, {
+                        player = player,
+                        character = character,
+                        hrp = hrp,
+                        humanoid = humanoid,
+                        head = character:FindFirstChild("Head"),
+                        torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Get all NPCs
+    if Config.TargetNPCs then
+        local npcLocations = {
+            Services.Workspace:FindFirstChild("Customers"),
+            Services.Workspace:FindFirstChild("NPCs"),
+            Services.Workspace:FindFirstChild("Enemies"),
+            Services.Workspace:FindFirstChild("Characters")
+        }
+        
+        for _, location in ipairs(npcLocations) do
+            if location then
+                for _, npc in ipairs(location:GetChildren()) do
+                    local hrp = npc:FindFirstChild("HumanoidRootPart")
+                    local humanoid = npc:FindFirstChildOfClass("Humanoid")
+                    
+                    if hrp and humanoid then
+                        table.insert(Cache.NPCs, {
+                            character = npc,
+                            hrp = hrp,
+                            humanoid = humanoid,
+                            head = npc:FindFirstChild("Head"),
+                            torso = npc:FindFirstChild("Torso") or npc:FindFirstChild("UpperTorso")
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    return #Cache.Players + #Cache.NPCs
+end
+
+-- Advanced Bombardment Engine
+local BombardmentEngine = {}
+
+function BombardmentEngine.FireTouchEvents()
+    local targets = {}
+    for _, t in ipairs(Cache.Players) do table.insert(targets, t) end
+    for _, t in ipairs(Cache.NPCs) do table.insert(targets, t) end
+    
+    if #targets == 0 or #Cache.TouchEvents == 0 or #Cache.TargetParts == 0 then
+        return 0
+    end
+    
+    local fireCount = 0
+    local speedProfile = SpeedProfiles[Config.SpamSpeed]
+    
+    for _, touchEvent in ipairs(Cache.TouchEvents) do
+        for _, target in ipairs(targets) do
+            for _, part in ipairs(Cache.TargetParts) do
+                Utils.SafeCall(function()
+                    -- Fire with multiple argument patterns
+                    touchEvent:FireServer(target.hrp, part)
+                    touchEvent:FireServer(target.humanoid, part)
+                    touchEvent:FireServer(target.character, part)
+                    
+                    if target.head then
+                        touchEvent:FireServer(target.head, part)
+                    end
+                    if target.torso then
+                        touchEvent:FireServer(target.torso, part)
+                    end
+                    
+                    fireCount = fireCount + 5
+                    Cache.Statistics.TotalRemotesFired = Cache.Statistics.TotalRemotesFired + 5
+                end)
+            end
+        end
+    end
+    
+    return fireCount
+end
+
+function BombardmentEngine.FireRemoteEvents()
+    local targets = {}
+    for _, t in ipairs(Cache.Players) do table.insert(targets, t) end
+    for _, t in ipairs(Cache.NPCs) do table.insert(targets, t) end
+    
+    if #targets == 0 or #Cache.RemoteEvents == 0 then
+        return 0
+    end
+    
+    local fireCount = 0
+    
+    -- Argument patterns to try
+    local argPatterns = {
+        {},
+        {true},
+        {false},
+        {1},
+        {0},
+        {"activate"},
+        {"trigger"},
+        {Vector3.new()},
+        {CFrame.new()},
+        {workspace}
+    }
+    
+    for _, remoteEvent in ipairs(Cache.RemoteEvents) do
+        -- Skip TouchEvent as they're handled separately
+        if remoteEvent.Name ~= "TouchEvent" then
+            for _, target in ipairs(targets) do
+                -- Fire with character-based arguments
+                Utils.SafeCall(function()
+                    remoteEvent:FireServer(target.hrp)
+                    remoteEvent:FireServer(target.character)
+                    remoteEvent:FireServer(target.humanoid)
+                    fireCount = fireCount + 3
+                end)
+                
+                -- Fire with various argument patterns
+                for _, args in ipairs(argPatterns) do
+                    Utils.SafeCall(function()
+                        remoteEvent:FireServer(unpack(args))
+                        fireCount = fireCount + 1
+                    end)
+                end
+            end
+        end
+    end
+    
+    Cache.Statistics.TotalRemotesFired = Cache.Statistics.TotalRemotesFired + fireCount
+    return fireCount
+end
+
+function BombardmentEngine.InvokeRemoteFunctions()
+    local targets = {}
+    for _, t in ipairs(Cache.Players) do table.insert(targets, t) end
+    for _, t in ipairs(Cache.NPCs) do table.insert(targets, t) end
+    
+    if #targets == 0 or #Cache.RemoteFunctions == 0 then
+        return 0
+    end
+    
+    local invokeCount = 0
+    
+    for _, remoteFunc in ipairs(Cache.RemoteFunctions) do
+        for _, target in ipairs(targets) do
+            -- Invoke with various arguments (these can cause major server lag)
+            Utils.SafeCall(function()
+                spawn(function() -- Non-blocking invokes
+                    pcall(function()
+                        remoteFunc:InvokeServer()
+                        invokeCount = invokeCount + 1
+                    end)
+                end)
+                spawn(function()
+                    pcall(function()
+                        remoteFunc:InvokeServer(target.hrp)
+                        invokeCount = invokeCount + 1
+                    end)
+                end)
+                spawn(function()
+                    pcall(function()
+                        remoteFunc:InvokeServer(target.character)
+                        invokeCount = invokeCount + 1
+                    end)
+                end)
+            end)
+        end
+    end
+    
+    Cache.Statistics.TotalRemotesFired = Cache.Statistics.TotalRemotesFired + invokeCount
+    return invokeCount
+end
+
+function BombardmentEngine.FireBindableEvents()
+    if #Cache.BindableEvents == 0 then return 0 end
+    
+    local fireCount = 0
+    
+    for _, bindable in ipairs(Cache.BindableEvents) do
+        Utils.SafeCall(function()
+            bindable:Fire()
+            bindable:Fire(true)
+            bindable:Fire("spam")
+            bindable:Fire(1)
+            fireCount = fireCount + 4
+        end)
+    end
+    
+    Cache.Statistics.TotalRemotesFired = Cache.Statistics.TotalRemotesFired + fireCount
+    return fireCount
+end
+
+function BombardmentEngine.ExecuteCycle()
+    TargetManager.UpdateTargets()
+    Cache.Statistics.TotalTargetsHit = #Cache.Players + #Cache.NPCs
+    
+    local totalFired = 0
+    
+    -- Execute all bombardment types
+    totalFired = totalFired + BombardmentEngine.FireTouchEvents()
+    totalFired = totalFired + BombardmentEngine.FireRemoteEvents()
+    totalFired = totalFired + BombardmentEngine.InvokeRemoteFunctions()
+    totalFired = totalFired + BombardmentEngine.FireBindableEvents()
+    
+    return totalFired
+end
+
+-- GUI System
+local GUI = {}
+
+function GUI.Create()
+    if Services.CoreGui:FindFirstChild("UltimateDestructionGUI") then
+        Services.CoreGui.UltimateDestructionGUI:Destroy()
+    end
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "UltimateDestructionGUI"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = Services.CoreGui
+    
+    -- Main Frame
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 420, 0, 520)
+    MainFrame.Position = UDim2.new(0.5, -210, 0.5, -260)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Parent = ScreenGui
+    
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 16)
+    MainCorner.Parent = MainFrame
+    
+    -- Border glow
+    local BorderStroke = Instance.new("UIStroke")
+    BorderStroke.Color = Color3.fromRGB(138, 43, 226)
+    BorderStroke.Thickness = 3
+    BorderStroke.Transparency = 0.3
+    BorderStroke.Parent = MainFrame
+    
+    -- Animated glow effect
+    spawn(function()
+        local glowIn = Services.TweenService:Create(BorderStroke, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+            Transparency = 0
+        })
+        glowIn:Play()
+    end)
+    
+    -- Title Bar
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, 0, 0, 60)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+    TitleBar.BorderSizePixel = 0
+    TitleBar.Parent = MainFrame
+    
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 16)
+    TitleCorner.Parent = TitleBar
+    
+    local TitleGradient = Instance.new("UIGradient")
+    TitleGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(138, 43, 226)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 20, 60)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(138, 43, 226))
+    })
+    TitleGradient.Parent = TitleBar
+    
+    -- Animate gradient
+    spawn(function()
+        while TitleBar.Parent do
+            for i = 0, 360, 3 do
+                if not TitleBar.Parent then break end
+                TitleGradient.Rotation = i
+                wait(0.03)
+            end
+        end
+    end)
+    
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Size = UDim2.new(1, -60, 1, 0)
+    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text = "⚠️ ULTIMATE DESTRUCTION v2.0 ⚠️"
+    TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TitleLabel.TextSize = 18
+    TitleLabel.Font = Enum.Font.GothamBold
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Parent = TitleBar
+    
+    local SubtitleLabel = Instance.new("TextLabel")
+    SubtitleLabel.Size = UDim2.new(1, -60, 0, 20)
+    SubtitleLabel.Position = UDim2.new(0, 10, 0, 35)
+    SubtitleLabel.BackgroundTransparency = 1
+    SubtitleLabel.Text = "Advanced Multi-Threaded FE Bombardment System"
+    SubtitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    SubtitleLabel.TextSize = 11
+    SubtitleLabel.Font = Enum.Font.Gotham
+    SubtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    SubtitleLabel.TextTransparency = 0.3
+    SubtitleLabel.Parent = TitleBar
+    
+    -- Close Button
+    local CloseButton = Instance.new("TextButton")
+    CloseButton.Size = UDim2.new(0, 50, 0, 50)
+    CloseButton.Position = UDim2.new(1, -55, 0, 5)
+    CloseButton.BackgroundTransparency = 1
+    CloseButton.Text = "✕"
+    CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseButton.TextSize = 32
+    CloseButton.Font = Enum.Font.GothamBold
+    CloseButton.Parent = TitleBar
+    
+    -- Stats Container
+    local StatsFrame = Instance.new("ScrollingFrame")
+    StatsFrame.Size = UDim2.new(1, -20, 0, 180)
+    StatsFrame.Position = UDim2.new(0, 10, 0, 70)
+    StatsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+    StatsFrame.BorderSizePixel = 0
+    StatsFrame.ScrollBarThickness = 4
+    StatsFrame.CanvasSize = UDim2.new(0, 0, 0, 180)
+    StatsFrame.Parent = MainFrame
+    
+    local StatsCorner = Instance.new("UICorner")
+    StatsCorner.CornerRadius = UDim.new(0, 12)
+    StatsCorner.Parent = StatsFrame
+    
+    -- Stats Labels
+    local function createStat(name, icon, color, position)
+        local StatLabel = Instance.new("TextLabel")
+        StatLabel.Name = name
+        StatLabel.Size = UDim2.new(1, -10, 0, 28)
+        StatLabel.Position = UDim2.new(0, 5, 0, position)
+        StatLabel.BackgroundTransparency = 1
+        StatLabel.Text = icon .. " " .. name .. ": 0"
+        StatLabel.TextColor3 = color
+        StatLabel.TextSize = 14
+        StatLabel.Font = Enum.Font.GothamBold
+        StatLabel.TextXAlignment = Enum.TextXAlignment.Left
+        StatLabel.Parent = StatsFrame
+        return StatLabel
+    end
+    
+    GUI.Stats = {
+        TouchEvents = createStat("TouchEvents", "🎯", Color3.fromRGB(100, 255, 150), 5),
+        RemoteEvents = createStat("RemoteEvents", "📡", Color3.fromRGB(255, 200, 100), 35),
+        RemoteFunctions = createStat("RemoteFunctions", "⚡", Color3.fromRGB(255, 150, 255), 65),
+        TargetParts = createStat("Target Parts", "🎲", Color3.fromRGB(150, 200, 255), 95),
+        ActiveTargets = createStat("Active Targets", "👥", Color3.fromRGB(255, 100, 100), 125),
+        TotalFired = createStat("Total Fired", "💥", Color3.fromRGB(255, 255, 100), 155)
+    }
+    
+    -- Performance Stats
+    local PerfFrame = Instance.new("Frame")
+    PerfFrame.Size = UDim2.new(1, -20, 0, 80)
+    PerfFrame.Position = UDim2.new(0, 10, 0, 260)
+    PerfFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+    PerfFrame.BorderSizePixel = 0
+    PerfFrame.Parent = MainFrame
+    
+    local PerfCorner = Instance.new("UICorner")
+    PerfCorner.CornerRadius = UDim.new(0, 12)
+    PerfCorner.Parent = PerfFrame
+    
+    GUI.Performance = {
+        Success = createStat("Successful Hits", "✓", Color3.fromRGB(100, 255, 100), 5),
+        Failed = createStat("Failed Attempts", "✗", Color3.fromRGB(255, 100, 100), 35)
+    }
+    GUI.Performance.Success.Parent = PerfFrame
+    GUI.Performance.Failed.Parent = PerfFrame
+    GUI.Performance.Success.Position = UDim2.new(0, 5, 0, 5)
+    GUI.Performance.Failed.Position = UDim2.new(0, 5, 0, 45)
+    
+    -- Speed Selector
+    local SpeedFrame = Instance.new("Frame")
+    SpeedFrame.Size = UDim2.new(1, -20, 0, 50)
+    SpeedFrame.Position = UDim2.new(0, 10, 0, 350)
+    SpeedFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+    SpeedFrame.BorderSizePixel = 0
+    SpeedFrame.Parent = MainFrame
+    
+    local SpeedCorner = Instance.new("UICorner")
+    SpeedCorner.CornerRadius = UDim.new(0, 12)
+    SpeedCorner.Parent = SpeedFrame
+    
+    local SpeedLabel = Instance.new("TextLabel")
+    SpeedLabel.Size = UDim2.new(0.3, 0, 1, 0)
+    SpeedLabel.BackgroundTransparency = 1
+    SpeedLabel.Text = "Speed Mode:"
+    SpeedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    SpeedLabel.TextSize = 14
+    SpeedLabel.Font = Enum.Font.GothamBold
+    SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    SpeedLabel.Position = UDim2.new(0, 10, 0, 0)
+    SpeedLabel.Parent = SpeedFrame
+    
+    GUI.SpeedValue = Instance.new("TextLabel")
+    GUI.SpeedValue.Size = UDim2.new(0.7, -10, 1, 0)
+    GUI.SpeedValue.Position = UDim2.new(0.3, 0, 0, 0)
+    GUI.SpeedValue.BackgroundTransparency = 1
+    GUI.SpeedValue.Text = Config.SpamSpeed
+    GUI.SpeedValue.TextColor3 = Color3.fromRGB(255, 100, 255)
+    GUI.SpeedValue.TextSize = 16
+    GUI.SpeedValue.Font = Enum.Font.GothamBold
+    GUI.SpeedValue.TextXAlignment = Enum.TextXAlignment.Right
+    GUI.SpeedValue.Parent = SpeedFrame
+    
+    local SpeedButton = Instance.new("TextButton")
+    SpeedButton.Size = UDim2.new(1, 0, 1, 0)
+    SpeedButton.BackgroundTransparency = 1
+    SpeedButton.Text = ""
+    SpeedButton.Parent = SpeedFrame
+    
+    local speeds = {"LOW", "MEDIUM", "HIGH", "EXTREME", "NUCLEAR"}
+    SpeedButton.MouseButton1Click:Connect(function()
+        local currentIndex = table.find(speeds, Config.SpamSpeed)
+        local nextIndex = (currentIndex % #speeds) + 1
+        Config.SpamSpeed = speeds[nextIndex]
+        getgenv().UltimateDestruction.SpamSpeed = Config.SpamSpeed
+        GUI.SpeedValue.Text = Config.SpamSpeed
+    end)
+    
+    -- Status Label
+    GUI.StatusLabel = Instance.new("TextLabel")
+    GUI.StatusLabel.Size = UDim2.new(1, -20, 0, 35)
+    GUI.StatusLabel.Position = UDim2.new(0, 10, 0, 410)
+    GUI.StatusLabel.BackgroundTransparency = 1
+    GUI.StatusLabel.Text = "💤 Status: INACTIVE"
+    GUI.StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    GUI.StatusLabel.TextSize = 18
+    GUI.StatusLabel.Font = Enum.Font.GothamBold
+    GUI.StatusLabel.Parent = MainFrame
+    
+    -- Main Toggle Button
+    GUI.ToggleButton = Instance.new("TextButton")
+    GUI.ToggleButton.Size = UDim2.new(1, -20, 0, 55)
+    GUI.ToggleButton.Position = UDim2.new(0, 10, 0, 455)
+    GUI.ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 20, 60)
+    GUI.ToggleButton.BorderSizePixel = 0
+    GUI.ToggleButton.Text = "🔥 START DESTRUCTION 🔥"
+    GUI.ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    GUI.ToggleButton.TextSize = 20
+    GUI.ToggleButton.Font = Enum.Font.GothamBold
+    GUI.ToggleButton.Parent = MainFrame
+    
+    local ToggleCorner = Instance.new("UICorner")
+    ToggleCorner.CornerRadius = UDim.new(0, 12)
+    ToggleCorner.Parent = GUI.ToggleButton
+    
+    local ToggleStroke = Instance.new("UIStroke")
+    ToggleStroke.Color = Color3.fromRGB(255, 100, 100)
+    ToggleStroke.Thickness = 3
+    ToggleStroke.Transparency = 0.5
+    ToggleStroke.Parent = GUI.ToggleButton
+    
+    -- Button handlers
+    GUI.ToggleButton.MouseButton1Click:Connect(function()
+        Config.MainActive = not Config.MainActive
+        getgenv().UltimateDestruction.MainActive = Config.MainActive
+        GUI.UpdateStatus()
+        
+        if Config.MainActive then
+            Services.StarterGui:SetCore("SendNotification", {
+                Title = "⚠️ DESTRUCTION ACTIVATED";
+                Text = "SERVER BOMBARDMENT IN PROGRESS!";
+                Duration = 3;
+            })
+        else
+            Services.StarterGui:SetCore("SendNotification", {
+                Title = "✓ Stopped";
+                Text = "Bombardment halted.";
+                Duration = 2;
+            })
+        end
+    end)
+    
+    CloseButton.MouseButton1Click:Connect(function()
+        Config.MainActive = false
+        getgenv().UltimateDestruction.MainActive = false
+        ScreenGui:Destroy()
+    end)
+    
+    -- Dragging functionality
+    local dragging, dragInput, dragStart, startPos
+    
+    TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    TitleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    
+    Services.UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(
+                startPos.X.Scale, 
+                startPos.X.Offset + delta.X, 
+                startPos.Y.Scale, 
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    return ScreenGui
+end
+
+function GUI.UpdateStats()
+    if not GUI.Stats then return end
+    
+    GUI.Stats.TouchEvents.Text = "🎯 TouchEvents: " .. #Cache.TouchEvents
+    GUI.Stats.RemoteEvents.Text = "📡 RemoteEvents: " .. #Cache.RemoteEvents
+    GUI.Stats.RemoteFunctions.Text = "⚡ RemoteFunctions: " .. #Cache.RemoteFunctions
+    GUI.Stats.TargetParts.Text = "🎲 Target Parts: " .. #Cache.TargetParts
+    GUI.Stats.ActiveTargets.Text = "👥 Active Targets: " .. (#Cache.Players + #Cache.NPCs)
+    GUI.Stats.TotalFired.Text = "💥 Total Fired: " .. Utils.FormatNumber(Cache.Statistics.TotalRemotesFired)
+    
+    if GUI.Performance then
+        GUI.Performance.Success.Text = "✓ Successful Hits: " .. Utils.FormatNumber(Cache.Statistics.SuccessfulHits)
+        GUI.Performance.Failed.Text = "✗ Failed Attempts: " .. Utils.FormatNumber(Cache.Statistics.FailedAttempts)
+    end
+end
+
+function GUI.UpdateStatus()
+    if not GUI.StatusLabel or not GUI.ToggleButton then return end
+    
+    if Config.MainActive then
+        GUI.StatusLabel.Text = "💥 Status: DESTROYING SERVER 💥"
+        GUI.StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+        GUI.ToggleButton.Text = "⏸️ STOP DESTRUCTION"
+        GUI.ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+    else
+        GUI.StatusLabel.Text = "💤 Status: INACTIVE"
+        GUI.StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        GUI.ToggleButton.Text = "🔥 START DESTRUCTION 🔥"
+        GUI.ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 20, 60)
+    end
+end
+
+-- Thread Management System
+local ThreadManager = {}
+
+function ThreadManager.StartMainLoop()
+    Utils.Log("Starting main bombardment loop...", "THREAD")
+    
+    local speedProfile = SpeedProfiles[Config.SpamSpeed]
+    
+    if Config.SpamSpeed == "NUCLEAR" then
+        -- NUCLEAR mode: Maximum speed using Heartbeat
+        Services.RunService.Heartbeat:Connect(function()
+            if Config.MainActive then
+                Utils.SafeCall(BombardmentEngine.ExecuteCycle)
+            end
+        end)
+    else
+        -- Other modes: Use delay-based loop
+        spawn(function()
+            while true do
+                local profile = SpeedProfiles[Config.SpamSpeed]
+                wait(profile.delay)
+                
+                if Config.MainActive then
+                    for i = 1, profile.multiplier do
+                        Utils.SafeCall(BombardmentEngine.ExecuteCycle)
+                    end
+                end
+            end
+        end)
+    end
+end
+
+function ThreadManager.StartStatLoop()
+    Utils.Log("Starting statistics update loop...", "THREAD")
+    
+    spawn(function()
+        while true do
+            wait(0.5)
+            if GUI.Stats then
+                GUI.UpdateStats()
+            end
+        end
+    end)
+end
+
+function ThreadManager.StartRescanLoop()
+    Utils.Log("Starting auto-rescan loop...", "THREAD")
+    
+    spawn(function()
+        while true do
+            wait(Cache.ScanInterval)
+            
+            if Config.AutoRescan then
+                Utils.Log("Auto-rescanning remotes...", "RESCAN")
+                RemoteScanner.FullScan()
+                PartDetector.ScanParts()
+                GUI.UpdateStats()
+            end
+        end
+    end)
+end
+
+function ThreadManager.StartUptimeTracker()
+    Utils.Log("Starting uptime tracker...", "THREAD")
+    
+    spawn(function()
+        local startTime = Utils.GetTimestamp()
+        while true do
+            wait(1)
+            if Config.MainActive then
+                Cache.Statistics.Uptime = Utils.GetTimestamp() - startTime
+            end
+        end
+    end)
+end
+
+-- Advanced Features Module
+local AdvancedFeatures = {}
+
+function AdvancedFeatures.SpamWorkspaceDescendants()
+    -- Find and spam workspace-specific remotes
+    local workspaceRemotes = {}
+    
+    for _, descendant in ipairs(Services.Workspace:GetDescendants()) do
+        if descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction") then
+            table.insert(workspaceRemotes, descendant)
+        end
+    end
+    
+    Utils.Log("Found " .. #workspaceRemotes .. " workspace remotes", "ADVANCED")
+    
+    return workspaceRemotes
+end
+
+function AdvancedFeatures.FindHiddenRemotes()
+    -- Look for remotes with suspicious names or in unusual locations
+    local hiddenRemotes = {}
+    
+    local suspiciousPatterns = {
+        "admin", "ban", "kick", "punish", "anticheat",
+        "log", "report", "moderate", "verify", "check"
+    }
+    
+    for _, remote in ipairs(Cache.RemoteEvents) do
+        local remoteName = remote.Name:lower()
+        for _, pattern in ipairs(suspiciousPatterns) do
+            if remoteName:find(pattern) then
+                table.insert(hiddenRemotes, remote)
+                Utils.Log("Found suspicious remote: " .. remote.Name, "ADVANCED")
+                break
+            end
+        end
+    end
+    
+    return hiddenRemotes
+end
+
+function AdvancedFeatures.TargetSpecificPlayer(playerName)
+    -- Focus bombardment on a specific player
+    for _, cachedPlayer in ipairs(Cache.Players) do
+        if cachedPlayer.player.Name:lower():find(playerName:lower()) then
+            Utils.Log("Targeting specific player: " .. cachedPlayer.player.Name, "ADVANCED")
+            
+            -- Intense focused attack
+            for i = 1, 50 do
+                for _, touchEvent in ipairs(Cache.TouchEvents) do
+                    for _, part in ipairs(Cache.TargetParts) do
+                        Utils.SafeCall(function()
+                            touchEvent:FireServer(cachedPlayer.hrp, part)
+                        end)
+                    end
+                end
+            end
+            
+            return true
+        end
+    end
+    
+    return false
+end
+
+function AdvancedFeatures.MassArgumentSpam()
+    -- Generate and spam random arguments to confuse server
+    local randomArgs = {
+        {true, false, true},
+        {1, 2, 3, 4, 5},
+        {"spam", "test", "exploit"},
+        {Vector3.new(999, 999, 999)},
+        {CFrame.new(0, 1000, 0)},
+        {workspace, game, Services.Players},
+        {math.huge, -math.huge, 0},
+        {string.rep("A", 100)},
+        {{nested = {table = {data = true}}}},
+        {Instance.new("Part")}
+    }
+    
+    for _, remote in ipairs(Cache.RemoteEvents) do
+        for _, args in ipairs(randomArgs) do
+            Utils.SafeCall(function()
+                remote:FireServer(unpack(args))
+            end)
+        end
+    end
+end
+
+function AdvancedFeatures.ChainReaction()
+    -- Create cascading effect by triggering multiple remotes in sequence
+    local chainCount = 0
+    
+    for i, remote1 in ipairs(Cache.RemoteEvents) do
+        Utils.SafeCall(function()
+            remote1:FireServer()
+            wait(0.01)
+            
+            for j = i + 1, math.min(i + 5, #Cache.RemoteEvents) do
+                local remote2 = Cache.RemoteEvents[j]
+                remote2:FireServer()
+                chainCount = chainCount + 1
+            end
+        end)
+    end
+    
+    Utils.Log("Chain reaction triggered: " .. chainCount .. " sequential fires", "ADVANCED")
+    return chainCount
+end
+
+-- Diagnostic Module
+local Diagnostics = {}
+
+function Diagnostics.GenerateReport()
+    local report = {
+        "========================================",
+        "ULTIMATE DESTRUCTION - DIAGNOSTIC REPORT",
+        "========================================",
+        "",
+        "=== CACHE STATUS ===",
+        "TouchEvents: " .. #Cache.TouchEvents,
+        "RemoteEvents: " .. #Cache.RemoteEvents,
+        "RemoteFunctions: " .. #Cache.RemoteFunctions,
+        "BindableEvents: " .. #Cache.BindableEvents,
+        "Target Parts: " .. #Cache.TargetParts,
+        "Cached Players: " .. #Cache.Players,
+        "Cached NPCs: " .. #Cache.NPCs,
+        "",
+        "=== STATISTICS ===",
+        "Total Remotes Fired: " .. Utils.FormatNumber(Cache.Statistics.TotalRemotesFired),
+        "Total Targets Hit: " .. Cache.Statistics.TotalTargetsHit,
+        "Successful Hits: " .. Utils.FormatNumber(Cache.Statistics.SuccessfulHits),
+        "Failed Attempts: " .. Utils.FormatNumber(Cache.Statistics.FailedAttempts),
+        "Success Rate: " .. string.format("%.2f%%", (Cache.Statistics.SuccessfulHits / math.max(1, Cache.Statistics.SuccessfulHits + Cache.Statistics.FailedAttempts)) * 100),
+        "Uptime: " .. string.format("%.1f seconds", Cache.Statistics.Uptime),
+        "",
+        "=== CONFIGURATION ===",
+        "Active: " .. tostring(Config.MainActive),
+        "Speed Mode: " .. Config.SpamSpeed,
+        "Target Players: " .. tostring(Config.TargetPlayers),
+        "Target NPCs: " .. tostring(Config.TargetNPCs),
+        "Smart Detection: " .. tostring(Config.SmartDetection),
+        "Auto Rescan: " .. tostring(Config.AutoRescan),
+        "Debug Mode: " .. tostring(Config.DebugMode),
+        "",
+        "=== REMOTE SAMPLES ===",
+    }
+    
+    for i = 1, math.min(5, #Cache.RemoteEvents) do
+        table.insert(report, "- " .. Cache.RemoteEvents[i]:GetFullName())
+    end
+    
+    table.insert(report, "")
+    table.insert(report, "========================================")
+    
+    return table.concat(report, "\n")
+end
+
+function Diagnostics.PrintReport()
+    print(Diagnostics.GenerateReport())
+end
+
+function Diagnostics.TestRemote(remoteName)
+    for _, remote in ipairs(Cache.RemoteEvents) do
+        if remote.Name == remoteName then
+            Utils.Log("Testing remote: " .. remoteName, "DIAGNOSTIC")
+            
+            local testArgs = {
+                {},
+                {true},
+                {LocalPlayer.Character},
+                {LocalPlayer.Character.HumanoidRootPart}
+            }
+            
+            for i, args in ipairs(testArgs) do
+                local success = Utils.SafeCall(function()
+                    remote:FireServer(unpack(args))
+                end)
+                Utils.Log(string.format("Test %d: %s", i, success and "SUCCESS" or "FAILED"), "DIAGNOSTIC")
+                wait(0.5)
+            end
+            
+            return true
+        end
+    end
+    
+    Utils.Log("Remote not found: " .. remoteName, "DIAGNOSTIC")
+    return false
+end
+
+-- Console Commands System
+local Commands = {}
+
+function Commands.Register()
+    getgenv().UltimateDestruction = getgenv().UltimateDestruction or {}
+    
+    -- Start/Stop
+    getgenv().UltimateDestruction.Start = function()
+        Config.MainActive = true
+        GUI.UpdateStatus()
+        Utils.Log("Started via console command", "COMMAND")
+    end
+    
+    getgenv().UltimateDestruction.Stop = function()
+        Config.MainActive = false
+        GUI.UpdateStatus()
+        Utils.Log("Stopped via console command", "COMMAND")
+    end
+    
+    -- Speed control
+    getgenv().UltimateDestruction.SetSpeed = function(speed)
+        if SpeedProfiles[speed:upper()] then
+            Config.SpamSpeed = speed:upper()
+            Utils.Log("Speed set to: " .. speed:upper(), "COMMAND")
+            if GUI.SpeedValue then
+                GUI.SpeedValue.Text = Config.SpamSpeed
+            end
+        else
+            Utils.Log("Invalid speed. Options: LOW, MEDIUM, HIGH, EXTREME, NUCLEAR", "COMMAND")
+        end
+    end
+    
+    -- Rescan
+    getgenv().UltimateDestruction.Rescan = function()
+        Utils.Log("Rescanning all remotes...", "COMMAND")
+        RemoteScanner.FullScan()
+        PartDetector.ScanParts()
+        GUI.UpdateStats()
+        Utils.Log("Rescan complete", "COMMAND")
+    end
+    
+    -- Diagnostics
+    getgenv().UltimateDestruction.Report = function()
+        Diagnostics.PrintReport()
+    end
+    
+    -- Target specific player
+    getgenv().UltimateDestruction.Target = function(playerName)
+        return AdvancedFeatures.TargetSpecificPlayer(playerName)
+    end
+    
+    -- Advanced features
+    getgenv().UltimateDestruction.ChainReaction = function()
+        return AdvancedFeatures.ChainReaction()
+    end
+    
+    getgenv().UltimateDestruction.MassSpam = function()
+        AdvancedFeatures.MassArgumentSpam()
+        Utils.Log("Mass argument spam executed", "COMMAND")
+    end
+    
+    -- Configuration
+    getgenv().UltimateDestruction.Config = Config
+    getgenv().UltimateDestruction.Stats = Cache.Statistics
+    
+    -- Test remote
+    getgenv().UltimateDestruction.TestRemote = function(name)
+        return Diagnostics.TestRemote(name)
+    end
+    
+    -- Debug toggle
+    getgenv().UltimateDestruction.Debug = function(enabled)
+        Config.DebugMode = enabled
+        Utils.Log("Debug mode: " .. tostring(enabled), "COMMAND")
+    end
+end
+
+-- Initialization System
+local Initializer = {}
+
+function Initializer.Run()
+    Utils.Log("Initializing Ultimate Destruction v2.0...", "INIT")
+    
+    -- Phase 1: Scan all remotes
+    Utils.Log("Phase 1: Scanning remotes...", "INIT")
+    local scanResults = RemoteScanner.FullScan()
+    
+    -- Phase 2: Detect target parts
+    Utils.Log("Phase 2: Detecting target parts...", "INIT")
+    PartDetector.ScanParts()
+    
+    -- Phase 3: Register console commands
+    Utils.Log("Phase 3: Registering console commands...", "INIT")
+    Commands.Register()
+    
+    -- Phase 4: Create GUI
+    Utils.Log("Phase 4: Creating GUI...", "INIT")
+    GUI.Create()
+    GUI.UpdateStats()
+    GUI.UpdateStatus()
+    
+    -- Phase 5: Start threads
+    Utils.Log("Phase 5: Starting threads...", "INIT")
+    ThreadManager.StartMainLoop()
+    ThreadManager.StartStatLoop()
+    ThreadManager.StartRescanLoop()
+    ThreadManager.StartUptimeTracker()
+    
+    -- Success notification
+    Services.StarterGui:SetCore("SendNotification", {
+        Title = "✓ Ultimate Destruction v2.0";
+        Text = string.format("Loaded %d remotes | %d parts detected", 
+            scanResults.remoteEvents, #Cache.TargetParts);
+        Duration = 5;
+    })
+    
+    Utils.Log("Initialization complete!", "INIT")
+    
+    -- Print welcome message
+    print([[
+    
+    ╔══════════════════════════════════════════════════════════╗
+    ║                                                          ║
+    ║        ULTIMATE DESTRUCTION v2.0 - LOADED                ║
+    ║                                                          ║
+    ║  Advanced Multi-Threaded FE Bombardment System          ║
+    ║                                                          ║
+    ╚══════════════════════════════════════════════════════════╝
+    
+    Console Commands:
+    - getgenv().UltimateDestruction.Start()
+    - getgenv().UltimateDestruction.Stop()
+    - getgenv().UltimateDestruction.SetSpeed("NUCLEAR")
+    - getgenv().UltimateDestruction.Rescan()
+    - getgenv().UltimateDestruction.Report()
+    - getgenv().UltimateDestruction.Target("PlayerName")
+    - getgenv().UltimateDestruction.ChainReaction()
+    - getgenv().UltimateDestruction.MassSpam()
+    - getgenv().UltimateDestruction.TestRemote("RemoteName")
+    - getgenv().UltimateDestruction.Debug(true/false)
+    
+    Speed Modes: LOW, MEDIUM, HIGH, EXTREME, NUCLEAR
+    
+    Stats:
+    - TouchEvents: ]] .. #Cache.TouchEvents .. [[
+    
+    - RemoteEvents: ]] .. #Cache.RemoteEvents .. [[
+    
+    - RemoteFunctions: ]] .. #Cache.RemoteFunctions .. [[
+    
+    - Target Parts: ]] .. #Cache.TargetParts .. [[
+    
+    
+    Ready to destroy! Use GUI or console commands.
+    ]])
+end
+
+-- Execute initialization
+Initializer.Run()
